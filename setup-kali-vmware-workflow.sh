@@ -60,7 +60,7 @@ APT_PACKAGES=(
   rlwrap
   netexec
   evil-winrm
-  xfconf-query
+  xfce4-power-manager
   hashcat
   john
   openvpn

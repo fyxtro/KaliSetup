@@ -3,60 +3,21 @@ set -Eeuo pipefail
 
 #############################################
 # Kali VMware Pentest Workflow Setup
-# Public version
+# Interactive + curl|bash friendly
 #############################################
 
 USER_NAME="${SUDO_USER:-$USER}"
 HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 DATE_TAG="$(date +%Y%m%d-%H%M%S)"
 
-# VMware shared folders root
-HGFS_ROOT="/mnt/hgfs"
-
-# Name of the VMware shared folder
-SHARE_NAME="Shared"
-
-# Base directory inside the shared folder
-BASE_SUBDIR="pentest-data"
-
-# Fallback if no shared folder is available
-FALLBACK_BASE="$HOME_DIR/pentest-data"
-
-# Optional settings
-ENABLE_SSH="false"
-SET_ZSH_DEFAULT="false"
-INSTALL_EXTRA_GO_TOOLS="true"
-INSTALL_PIPX_TOOLS="true"
-
-#############################################
-# Derived paths
-#############################################
-
-if [[ -d "$HGFS_ROOT/$SHARE_NAME" ]]; then
-    BASE_DIR="$HGFS_ROOT/$SHARE_NAME/$BASE_SUBDIR"
-    USING_SHARED="true"
-elif [[ -d "$HGFS_ROOT" ]] && mountpoint -q "$HGFS_ROOT"; then
-    FIRST_SHARE="$(find "$HGFS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1 || true)"
-    if [[ -n "${FIRST_SHARE:-}" ]]; then
-        BASE_DIR="$FIRST_SHARE/$BASE_SUBDIR"
-        USING_SHARED="true"
-    else
-        BASE_DIR="$FALLBACK_BASE"
-        USING_SHARED="false"
-    fi
-else
-    BASE_DIR="$FALLBACK_BASE"
-    USING_SHARED="false"
-fi
-
-TOOLS_DIR="$BASE_DIR/tools"
-WORDLIST_DIR="$BASE_DIR/wordlists"
-ASSESSMENTS_DIR="$BASE_DIR/assessments"
-LOGS_DIR="$BASE_DIR/tmux-logs"
-NOTES_DIR="$BASE_DIR/notes"
-VPN_DIR="$BASE_DIR/vpn"
-LOOT_DIR="$BASE_DIR/loot"
-SCREENSHOTS_DIR="$BASE_DIR/screenshots"
+HGFS_ROOT="${HGFS_ROOT:-/mnt/hgfs}"
+SHARE_NAME="${SHARE_NAME:-KaliShare}"
+BASE_SUBDIR="${BASE_SUBDIR:-pentest-data}"
+ENABLE_SSH="${ENABLE_SSH:-false}"
+SET_ZSH_DEFAULT="${SET_ZSH_DEFAULT:-false}"
+INSTALL_EXTRA_GO_TOOLS="${INSTALL_EXTRA_GO_TOOLS:-true}"
+INSTALL_PIPX_TOOLS="${INSTALL_PIPX_TOOLS:-true}"
+DISABLE_SCREEN_TIMEOUT="${DISABLE_SCREEN_TIMEOUT:-true}"
 
 TMUX_DIR="$HOME_DIR/.tmux"
 TPM_DIR="$TMUX_DIR/plugins/tpm"
@@ -116,15 +77,7 @@ GO_TOOLS=(
   "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
 )
 
-GIT_REPOS=(
-  "https://github.com/peass-ng/PEASS-ng.git|$TOOLS_DIR/PEASS-ng"
-  "https://github.com/projectdiscovery/nuclei-templates.git|$TOOLS_DIR/nuclei-templates"
-  "https://github.com/danielmiessler/SecLists.git|$TOOLS_DIR/SecLists-git"
-)
-
-#############################################
-# Helpers
-#############################################
+GIT_REPOS=()
 
 log() {
     printf '[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -141,9 +94,190 @@ require_root() {
     fi
 }
 
-#############################################
-# Setup steps
-#############################################
+is_true() {
+    case "${1,,}" in
+        true|yes|y|1) return 0 ;;
+        false|no|n|0) return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+prompt_with_default() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default_value="$3"
+    local reply=""
+
+    if [[ -r /dev/tty ]]; then
+        read -r -p "$prompt_text [$default_value]: " reply < /dev/tty || true
+        reply="${reply:-$default_value}"
+    else
+        reply="$default_value"
+    fi
+
+    printf -v "$var_name" '%s' "$reply"
+}
+
+prompt_bool() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default_value="$3"
+    local reply=""
+
+    if [[ -r /dev/tty ]]; then
+        read -r -p "$prompt_text [$default_value]: " reply < /dev/tty || true
+        reply="${reply:-$default_value}"
+    else
+        reply="$default_value"
+    fi
+
+    case "${reply,,}" in
+        y|yes|true|1) reply="true" ;;
+        n|no|false|0) reply="false" ;;
+        *) reply="$default_value" ;;
+    esac
+
+    printf -v "$var_name" '%s' "$reply"
+}
+
+configure_interactive() {
+    echo
+    echo "Kali VMware Pentest Workflow Setup"
+    echo "Press Enter to accept defaults."
+    echo
+
+    prompt_with_default HGFS_ROOT "VMware shared folders root" "$HGFS_ROOT"
+    prompt_with_default SHARE_NAME "VMware shared folder name" "$SHARE_NAME"
+    prompt_with_default BASE_SUBDIR "Workspace subdirectory" "$BASE_SUBDIR"
+
+    prompt_bool ENABLE_SSH "Enable SSH server" "$ENABLE_SSH"
+    prompt_bool SET_ZSH_DEFAULT "Set Zsh as default shell" "$SET_ZSH_DEFAULT"
+    prompt_bool INSTALL_EXTRA_GO_TOOLS "Install extra Go tools" "$INSTALL_EXTRA_GO_TOOLS"
+    prompt_bool INSTALL_PIPX_TOOLS "Install pipx tools" "$INSTALL_PIPX_TOOLS"
+    prompt_bool DISABLE_SCREEN_TIMEOUT "Disable screen standby and lock" "$DISABLE_SCREEN_TIMEOUT"
+
+    echo
+}
+
+normalize_bool() {
+    case "${1,,}" in
+        true|yes|y|1) echo "true" ;;
+        false|no|n|0) echo "false" ;;
+        *) echo "$2" ;;
+    esac
+}
+
+prompt_with_default() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default_value="$3"
+    local current_value="$4"
+    local reply=""
+
+    if [[ -t 0 ]]; then
+        read -r -p "$prompt_text [$current_value]: " reply || true
+        if [[ -n "$reply" ]]; then
+            printf -v "$var_name" '%s' "$reply"
+        else
+            printf -v "$var_name" '%s' "$current_value"
+        fi
+    else
+        printf -v "$var_name" '%s' "$current_value"
+    fi
+}
+
+prompt_bool() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local current_value="$3"
+    local reply=""
+
+    if [[ -t 0 ]]; then
+        read -r -p "$prompt_text [$current_value]: " reply || true
+        if [[ -n "$reply" ]]; then
+            printf -v "$var_name" '%s' "$(normalize_bool "$reply" "$current_value")"
+        else
+            printf -v "$var_name" '%s' "$current_value"
+        fi
+    else
+        printf -v "$var_name" '%s' "$current_value"
+    fi
+}
+
+configure_interactive() {
+    if [[ -t 0 ]]; then
+        echo
+        echo "Kali VMware Pentest Workflow Setup"
+        echo "Press Enter to accept defaults."
+        echo
+
+        prompt_with_default HGFS_ROOT "VMware shared folders root" "$DEFAULT_HGFS_ROOT" "$HGFS_ROOT"
+        prompt_with_default SHARE_NAME "VMware shared folder name" "$DEFAULT_SHARE_NAME" "$SHARE_NAME"
+        prompt_with_default BASE_SUBDIR "Workspace subdirectory" "$DEFAULT_BASE_SUBDIR" "$BASE_SUBDIR"
+
+        prompt_bool ENABLE_SSH "Enable SSH server" "$ENABLE_SSH"
+        prompt_bool SET_ZSH_DEFAULT "Set Zsh as default shell" "$SET_ZSH_DEFAULT"
+        prompt_bool INSTALL_EXTRA_GO_TOOLS "Install extra Go tools" "$INSTALL_EXTRA_GO_TOOLS"
+        prompt_bool INSTALL_PIPX_TOOLS "Install pipx tools" "$INSTALL_PIPX_TOOLS"
+        prompt_bool DISABLE_SCREEN_TIMEOUT "Disable screen standby and lock" "$DISABLE_SCREEN_TIMEOUT"
+
+        echo
+    fi
+}
+
+resolve_paths() {
+    local fallback_base="$HOME_DIR/$BASE_SUBDIR"
+
+    if [[ -d "$HGFS_ROOT/$SHARE_NAME" ]]; then
+        BASE_DIR="$HGFS_ROOT/$SHARE_NAME/$BASE_SUBDIR"
+        USING_SHARED="true"
+    elif [[ -d "$HGFS_ROOT" ]] && mountpoint -q "$HGFS_ROOT"; then
+        local first_share
+        first_share="$(find "$HGFS_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1 || true)"
+        if [[ -n "${first_share:-}" ]]; then
+            BASE_DIR="$first_share/$BASE_SUBDIR"
+            USING_SHARED="true"
+        else
+            BASE_DIR="$fallback_base"
+            USING_SHARED="false"
+        fi
+    else
+        BASE_DIR="$fallback_base"
+        USING_SHARED="false"
+    fi
+
+    TOOLS_DIR="$BASE_DIR/tools"
+    WORDLIST_DIR="$BASE_DIR/wordlists"
+    ASSESSMENTS_DIR="$BASE_DIR/assessments"
+    LOGS_DIR="$BASE_DIR/tmux-logs"
+    NOTES_DIR="$BASE_DIR/notes"
+    VPN_DIR="$BASE_DIR/vpn"
+    LOOT_DIR="$BASE_DIR/loot"
+    SCREENSHOTS_DIR="$BASE_DIR/screenshots"
+
+    GIT_REPOS=(
+      "https://github.com/peass-ng/PEASS-ng.git|$TOOLS_DIR/PEASS-ng"
+      "https://github.com/projectdiscovery/nuclei-templates.git|$TOOLS_DIR/nuclei-templates"
+      "https://github.com/danielmiessler/SecLists.git|$TOOLS_DIR/SecLists-git"
+    )
+}
+
+show_configuration() {
+    echo "Configuration:"
+    echo "  User:                    $USER_NAME"
+    echo "  Home:                    $HOME_DIR"
+    echo "  VMware shared root:      $HGFS_ROOT"
+    echo "  VMware share name:       $SHARE_NAME"
+    echo "  Base subdirectory:       $BASE_SUBDIR"
+    echo "  Using shared folder:     $USING_SHARED"
+    echo "  Base directory:          $BASE_DIR"
+    echo "  Enable SSH:              $ENABLE_SSH"
+    echo "  Set Zsh default shell:   $SET_ZSH_DEFAULT"
+    echo "  Install extra Go tools:  $INSTALL_EXTRA_GO_TOOLS"
+    echo "  Install pipx tools:      $INSTALL_PIPX_TOOLS"
+    echo "  Disable standby/lock:    $DISABLE_SCREEN_TIMEOUT"
+    echo
+}
 
 ensure_packages() {
     log "Updating package lists and installing packages"
@@ -246,7 +380,7 @@ setup_wordlists() {
 }
 
 install_pipx_tools() {
-    if [[ "$INSTALL_PIPX_TOOLS" != "true" ]]; then
+    if ! is_true "$INSTALL_PIPX_TOOLS"; then
         return
     fi
 
@@ -260,7 +394,7 @@ install_pipx_tools() {
 }
 
 install_go_tools() {
-    if [[ "$INSTALL_EXTRA_GO_TOOLS" != "true" ]]; then
+    if ! is_true "$INSTALL_EXTRA_GO_TOOLS"; then
         return
     fi
 
@@ -273,6 +407,7 @@ install_go_tools() {
 clone_git_repos() {
     log "Cloning or updating repositories"
     for entry in "${GIT_REPOS[@]}"; do
+        local repo dest
         repo="${entry%%|*}"
         dest="${entry##*|}"
 
@@ -397,19 +532,24 @@ EOF
 }
 
 disable_screen_timeout() {
+    if ! is_true "$DISABLE_SCREEN_TIMEOUT"; then
+        return
+    fi
+
     log "Disabling screen timeout and lock"
 
-    run_as_user "gsettings set org.gnome.desktop.session idle-delay 0"
-    run_as_user "gsettings set org.gnome.desktop.screensaver lock-enabled false"
-    run_as_user "gsettings set org.gnome.desktop.screensaver idle-activation-enabled false"
+    run_as_user "gsettings set org.gnome.desktop.session idle-delay 0 || true"
+    run_as_user "gsettings set org.gnome.desktop.screensaver lock-enabled false || true"
+    run_as_user "gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true"
 
-    # XFCE fallback (sommige Kali builds)
     run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/inactivity-on-ac -s 0 || true"
     run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac -s 0 || true"
+    run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s false || true"
+    run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/presentation-mode -s true || true"
 }
 
 setup_ssh() {
-    if [[ "$ENABLE_SSH" != "true" ]]; then
+    if ! is_true "$ENABLE_SSH"; then
         return
     fi
 
@@ -420,7 +560,7 @@ setup_ssh() {
 }
 
 set_default_shell() {
-    if [[ "$SET_ZSH_DEFAULT" != "true" ]]; then
+    if ! is_true "$SET_ZSH_DEFAULT"; then
         return
     fi
 
@@ -466,6 +606,9 @@ EOF
 
 main() {
     require_root
+    configure_interactive
+    resolve_paths
+    show_configuration
     ensure_packages
     ensure_vmware_tools
     ensure_dirs

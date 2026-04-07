@@ -12,6 +12,7 @@ The script is intended to be used alongside the official Kali VMware image and c
 - Uses a mounted VMware shared folder (`/mnt/hgfs/...`) as the base directory
 - Falls back to the user home directory if no shared folder is detected
 - Keeps all pentest data in a location suitable for backups
+- Supports interactive setup prompts with default values
 
 ### Structured Pentest Workspace
 
@@ -95,6 +96,11 @@ Also includes:
 - Links `/usr/share/seclists` into the workspace
 - Keeps all testing resources centralized
 
+### Desktop Behavior
+
+- Can disable screen standby and screen locking
+- Useful for long-running scans, captures, and tmux sessions inside a VM
+
 ---
 
 ## Requirements
@@ -107,9 +113,25 @@ Also includes:
 
 ## Installation
 
+### Interactive local run
+
 ```
 chmod +x setup-kali-vmware-workflow.sh
 sudo ./setup-kali-vmware-workflow.sh
+```
+
+### Interactive remote run
+
+```
+curl -fsSL https://example.com/setup-kali-vmware-workflow.sh | sudo bash
+```
+
+The script prompts for configuration values and shows defaults that can be accepted by pressing Enter.
+
+### Override values non-interactively
+
+```
+curl -fsSL https://example.com/setup-kali-vmware-workflow.sh | sudo SHARE_NAME=Shared BASE_SUBDIR=pentest-data ENABLE_SSH=false bash
 ```
 
 ---
@@ -166,7 +188,7 @@ By default, the script expects:
 You can modify this in the script:
 
 ```
-SHARE_NAME="KaliShare"
+SHARE_NAME="Shared"
 ```
 
 If no shared folder is detected, it falls back to:
@@ -180,8 +202,8 @@ If no shared folder is detected, it falls back to:
 ## Recommended Workflow
 
 1. Deploy Kali VMware image
-2. Update system
-3. Run this script
+2. Update the system
+3. Run this script and accept or change the prompted defaults
 4. Optionally run PimpMyKali
 5. Start assessments:
 
@@ -204,4 +226,3 @@ assess <client>
 ## Disclaimer
 
 This script is intended for authorized security testing only. Use it only on systems you have permission to test.
-

@@ -60,6 +60,7 @@ APT_PACKAGES=(
   rlwrap
   netexec
   evil-winrm
+  xfconf-query
   hashcat
   john
   openvpn
@@ -165,64 +166,6 @@ normalize_bool() {
         false|no|n|0) echo "false" ;;
         *) echo "$2" ;;
     esac
-}
-
-prompt_with_default() {
-    local var_name="$1"
-    local prompt_text="$2"
-    local default_value="$3"
-    local current_value="$4"
-    local reply=""
-
-    if [[ -t 0 ]]; then
-        read -r -p "$prompt_text [$current_value]: " reply || true
-        if [[ -n "$reply" ]]; then
-            printf -v "$var_name" '%s' "$reply"
-        else
-            printf -v "$var_name" '%s' "$current_value"
-        fi
-    else
-        printf -v "$var_name" '%s' "$current_value"
-    fi
-}
-
-prompt_bool() {
-    local var_name="$1"
-    local prompt_text="$2"
-    local current_value="$3"
-    local reply=""
-
-    if [[ -t 0 ]]; then
-        read -r -p "$prompt_text [$current_value]: " reply || true
-        if [[ -n "$reply" ]]; then
-            printf -v "$var_name" '%s' "$(normalize_bool "$reply" "$current_value")"
-        else
-            printf -v "$var_name" '%s' "$current_value"
-        fi
-    else
-        printf -v "$var_name" '%s' "$current_value"
-    fi
-}
-
-configure_interactive() {
-    if [[ -t 0 ]]; then
-        echo
-        echo "Kali VMware Pentest Workflow Setup"
-        echo "Press Enter to accept defaults."
-        echo
-
-        prompt_with_default HGFS_ROOT "VMware shared folders root" "$DEFAULT_HGFS_ROOT" "$HGFS_ROOT"
-        prompt_with_default SHARE_NAME "VMware shared folder name" "$DEFAULT_SHARE_NAME" "$SHARE_NAME"
-        prompt_with_default BASE_SUBDIR "Workspace subdirectory" "$DEFAULT_BASE_SUBDIR" "$BASE_SUBDIR"
-
-        prompt_bool ENABLE_SSH "Enable SSH server" "$ENABLE_SSH"
-        prompt_bool SET_ZSH_DEFAULT "Set Zsh as default shell" "$SET_ZSH_DEFAULT"
-        prompt_bool INSTALL_EXTRA_GO_TOOLS "Install extra Go tools" "$INSTALL_EXTRA_GO_TOOLS"
-        prompt_bool INSTALL_PIPX_TOOLS "Install pipx tools" "$INSTALL_PIPX_TOOLS"
-        prompt_bool DISABLE_SCREEN_TIMEOUT "Disable screen standby and lock" "$DISABLE_SCREEN_TIMEOUT"
-
-        echo
-    fi
 }
 
 resolve_paths() {

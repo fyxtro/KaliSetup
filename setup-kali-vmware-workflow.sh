@@ -396,6 +396,18 @@ EOF
     chown "$USER_NAME:$USER_NAME" "$BASE_DIR/README-SETUP.txt"
 }
 
+disable_screen_timeout() {
+    log "Disabling screen timeout and lock"
+
+    run_as_user "gsettings set org.gnome.desktop.session idle-delay 0"
+    run_as_user "gsettings set org.gnome.desktop.screensaver lock-enabled false"
+    run_as_user "gsettings set org.gnome.desktop.screensaver idle-activation-enabled false"
+
+    # XFCE fallback (sommige Kali builds)
+    run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/inactivity-on-ac -s 0 || true"
+    run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac -s 0 || true"
+}
+
 setup_ssh() {
     if [[ "$ENABLE_SSH" != "true" ]]; then
         return
@@ -467,6 +479,7 @@ main() {
     write_assessment_helper
     write_shell_aliases
     write_workspace_readme
+    disable_screen_timeout
     setup_ssh
     set_default_shell
     cleanup
